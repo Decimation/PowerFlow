@@ -1,4 +1,5 @@
-﻿using System.Data.Common;
+﻿using System.Data;
+using System.Data.Common;
 using System.Data.SQLite;
 using System.Globalization;
 using System.Numerics;
@@ -10,7 +11,7 @@ using static PowerFlow.Ext;
 
 namespace PowerFlow;
 
-public class FlowClient
+public class FlowClient:IDisposable, IAsyncDisposable
 {
 	public SQLiteConnection Client { get; }
 
@@ -19,7 +20,7 @@ public class FlowClient
 	public FlowClient(string db)
 	{
 		Client = new SQLiteConnection($"Data Source={db}");
-
+		
 		Client.Update += (sender, args) =>
 		{
 			Console.WriteLine($"{sender} {args}");
@@ -34,42 +35,45 @@ public class FlowClient
 
 	public async Task<FlowData> Read()
 	{
-
-		var c = Client.CreateCommand();
+		using var c = Client.CreateCommand();
 
 		c.CommandText = @"
 SELECT * FROM NotificationData ORDER BY Ticks DESC LIMIT 1
 ";
-		var o = await c.ExecuteReaderAsync();
-		
-		var id           = o.GetString(0);
-		var notiCategory = o.GetInt32(1);
-		var name         = o.GetString(3);
-		var group        = o.GetString(4);
-		var tag          = o.GetString(5);
-		var isRead       = o.GetInt32(6).ToBool();
-		var iconPath     = o.GetString(7);
-		var o1           = o["Title"];
-		var o2           = o["Url"];
-		var o3           = o["Content"];
-		var fs           = Parse2<long>(o["FileSize"]);
+		using var o = await c.ExecuteReaderAsync();
+		if (await o.ReadAsync()) {
+			var id           = o.GetString(0);
+			var notiCategory = o.GetInt32(1);
+			var name         = o.GetString(3);
+			var group        = o.GetString(4);
+			var tag          = o.GetString(5);
+			var isRead       = o.GetInt32(6).ToBool();
+			var iconPath     = o.GetString(7);
+			var o1           = o["Title"];
+			var o2           = o["Url"];
+			var o3           = o["Content"];
+			var fs           = Parse2<long>(o["FileSize"]);
 
-		var x = new FlowData()
-		{
-			UniqueID       = id,
-			NotiCategory   = notiCategory,
-			AppDisplayName = name,
-			Group          = group,
-			Tag            = tag,
-			IsRead         = isRead,
-			IconPath       = iconPath,
-			Title          = Parse<string>(o1),
-			Url            = Parse<string>(o2),
-			Content        = Parse<string>(o3),
-			FileSize       = fs
-		};
+			var x = new FlowData()
+			{
+				UniqueID       = id,
+				NotiCategory   = notiCategory,
+				AppDisplayName = name,
+				Group          = group,
+				Tag            = tag,
+				IsRead         = isRead,
+				IconPath       = iconPath,
+				Title          = Parse<string>(o1),
+				Url            = Parse<string>(o2),
+				Content        = Parse<string>(o3),
+				FileSize       = fs
+			};
 
-		return x;
+			return x;
+
+		}
+
+		return null;
 	}
 
 	public static string FindDatabase()
@@ -85,6 +89,16 @@ SELECT * FROM NotificationData ORDER BY Ticks DESC LIMIT 1
 		var db        = Path.Combine(flowState, "Notifications.db");
 
 		return db;
+	}
+
+	public void Dispose()
+	{
+		Client.Dispose();
+	}
+
+	public async ValueTask DisposeAsync()
+	{
+		await Client.DisposeAsync();
 	}
 }
 
